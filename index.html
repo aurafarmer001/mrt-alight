@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b1220">
+<title>Alight Alert</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{--bg:#0b1220;--card:#131c2e;--line:#243049;--text:#e8eefc;--mut:#8fa0c0;--acc:#22d3ee;--warn:#facc15;--bad:#ef4444}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:560px;margin:0 auto;padding:16px 14px 90px}
+h1{margin:6px 0 0;font-size:26px}
+.sub{margin:2px 0 14px;color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:14px}
+h2{margin:0 0 10px;font-size:17px}
+button{font:inherit;color:var(--text);background:#1d2a44;border:1px solid var(--line);border-radius:12px;padding:10px 14px;cursor:pointer}
+button.primary{background:var(--acc);color:#04222a;border:0;font-weight:700}
+button.danger{background:var(--bad);border:0;font-weight:700;color:#fff}
+button.ghost{background:transparent}
+input[type=search],input[type=number]{width:100%;font:inherit;color:var(--text);background:#0e1627;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.row{display:flex;gap:8px;align-items:center;margin:8px 0}
+.seg{display:flex;gap:6px;margin-bottom:8px}
+.seg button{flex:1}
+.seg button.on{background:var(--acc);color:#04222a;font-weight:700;border:0}
+.results button{display:block;width:100%;text-align:left;margin:6px 0}
+.results small,.hint,.mut{color:var(--mut)}
+.results small{display:block}
+.hint{font-size:13px;margin:4px 0 8px}
+#map{height:230px;border-radius:12px;margin:8px 0;border:1px solid var(--line)}
+.dest{background:#0e1627;border:1px dashed var(--line);border-radius:12px;padding:10px 12px;margin:8px 0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{padding:6px 10px;font-size:14px;border-radius:999px}
+label{display:block;margin:12px 0 2px;font-size:14px;color:var(--mut)}
+label.chk{display:flex;gap:10px;align-items:center;color:var(--text);margin:12px 0 0}
+input[type=range]{width:100%;accent-color:var(--acc)}
+input[type=checkbox]{width:20px;height:20px;accent-color:var(--acc)}
+.big{font-size:56px;font-weight:800;text-align:center;margin:2px 0;letter-spacing:-1px}
+.state{text-align:center;color:var(--mut);margin-bottom:10px;min-height:22px}
+.state.ok{color:#4ade80}.state.warn{color:var(--warn)}.state.bad{color:#f87171}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:14px;color:var(--mut);margin-bottom:12px}
+.ctl{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.ctl button{flex:1;min-width:140px}
+#alarm{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:24px;animation:flash .6s infinite alternate}
+@keyframes flash{from{background:#b91c1c}to{background:#f97316}}
+#alarm h1{font-size:42px;margin:0}
+#alarm p{font-size:20px;margin:0}
+#alarm button{font-size:20px;padding:16px 22px;width:100%;max-width:340px;font-weight:700}
+#dim{position:fixed;inset:0;background:#000;z-index:900;display:flex;align-items:flex-end;justify-content:center;color:#2a2a2a;padding:28px;font-size:13px;text-align:center}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1d2a44;border:1px solid var(--line);padding:10px 16px;border-radius:12px;z-index:1200;max-width:90%}
+details{margin-top:8px}
+summary{cursor:pointer;font-weight:600}
+details ul,details ol{padding-left:20px;margin:8px 0}
+details li{margin:6px 0}
+</style>
+</head>
+<body>
+<main>
+<h1>🚉 Alight Alert</h1>
+<p class="sub">Pick your stop. Sleep, game or scroll. Get woken up before you arrive.</p>
+
+<section class="card">
+  <h2>1 · Where are you getting off?</h2>
+  <div class="seg" id="modeSeg">
+    <button data-m="mrt" class="on">🚇 MRT</button>
+    <button data-m="bus">🚌 Bus</button>
+  </div>
+  <div class="row">
+    <input id="q" type="search" placeholder="e.g. Jurong East, Bishan, Opp Blk 123" enterkeyhint="search">
+    <button id="searchBtn" class="primary">Search</button>
+  </div>
+  <div id="results" class="results"></div>
+  <div id="map"></div>
+  <p class="hint">Search not finding your stop? Tap the map to drop a pin exactly where you want to get off.</p>
+  <div id="destBox" class="dest">No destination selected yet</div>
+  <div class="row"><button id="favBtn" class="ghost">☆ Save to favourites</button></div>
+  <div id="favs" class="chips"></div>
+</section>
+
+<section class="card">
+  <h2>2 · Alert settings</h2>
+  <label>Gentle warning at <b id="warnVal"></b> away</label>
+  <input id="warn" type="range" min="300" max="3000" step="100">
+  <label>LOUD alarm at <b id="alarmVal"></b> away</label>
+  <input id="alarm_r" type="range" min="100" max="2000" step="50">
+  <label>Backup timer: loud alarm after this many minutes (0 = off)</label>
+  <input id="backup" type="number" min="0" max="240" step="1" inputmode="numeric">
+  <label class="chk"><input id="wake" type="checkbox"> Keep screen on while tracking (most reliable)</label>
+</section>
+
+<section class="card">
+  <h2>3 · Track</h2>
+  <div class="big" id="dist">—</div>
+  <div class="state" id="state">Not tracking</div>
+  <div class="stats">
+    <div>Speed: <span id="speed">—</span></div>
+    <div>Battery: <span id="batt">—</span></div>
+    <div>Backup timer: <span id="bleft">off</span></div>
+    <div>Mode: <span id="modeTxt">MRT</span></div>
+  </div>
+  <div class="ctl">
+    <button id="startBtn" class="primary">▶ Start tracking</button>
+    <button id="stopBtn" class="danger" hidden>■ End trip</button>
+    <button id="dimBtn" hidden>🌑 Black screen (saves battery)</button>
+    <button id="testBtn">🔔 Test alarm</button>
+    <button id="testLaterBtn">⏱ Test in 10 s (then switch apps)</button>
+    <button id="installBtn" hidden>📲 Install app</button>
+  </div>
+
+  <details>
+    <summary>Android setup (do this once)</summary>
+    <ol>
+      <li>Open this page in Chrome, tap ⋮ → <b>Install app</b> (or Add to Home screen), then open it from the home-screen icon.</li>
+      <li>Allow <b>Location</b> and <b>Notifications</b> when asked.</li>
+      <li>Phone Settings → Apps → Chrome (or Alight Alert) → Battery → <b>Unrestricted</b>. Turn off Battery Saver for the ride.</li>
+      <li>For the on-screen pop-up banner and vibration in other apps: Phone Settings → Apps → Alight Alert (or Chrome) → Notifications → open the Alight Alert / site category → set importance to <b>Urgent / Pop on screen</b> and keep <b>Vibration</b> on. Turn off Do Not Disturb.</li>
+      <li>The alarm plays on <b>media volume</b>, not ringer volume. Turn media volume up.</li>
+      <li>Tap <b>Test alarm</b> before every trip. Don't swipe the app away while riding.</li>
+    </ol>
+  </details>
+  <details>
+    <summary>How it works / limits</summary>
+    <ul>
+      <li>A near-silent sound plays while tracking so Android treats the page like a music player and is less likely to freeze it. This is best effort, not guaranteed.</li>
+      <li>Some phones stop sending location when the screen is off. <b>Black screen mode</b> keeps the screen technically on but black, which is the safest option.</li>
+      <li>Underground, GPS is lost. The app then estimates your position (marked <b>~</b>) and the backup timer is your safety net.</li>
+      <li>A web page can only vibrate the phone while it is on screen. In other apps, the alarm re-posts its notification every 5 seconds so Android vibrates the phone itself. This needs the notification setting above.</li>
+      <li>Bus stops: the list of Singapore bus stops downloads the first time you use Bus mode, then is saved on your phone.</li>
+    </ul>
+  </details>
+</section>
+</main>
+
+<div id="alarm" hidden>
+  <h1>🚨 GET OFF NOW</h1>
+  <p id="alarmText"></p>
+  <button id="stopAlarmBtn" style="background:#fff;color:#7f1d1d;border:0">I'm awake – end trip</button>
+  <button id="snoozeBtn" style="background:rgba(0,0,0,.35);color:#fff;border:0">Snooze 1 min (still riding)</button>
+</div>
+<div id="dim" hidden>Tracking… tap anywhere to show the screen</div>
+<div id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+
+/* ---------- state ---------- */
+const DEF_SPEED = { mrt: 10, bus: 5 };               // m/s fallback when GPS is lost
+let mode = store.get('mode', 'mrt');
+let cfg = store.get('cfg', { mrt:{warn:1500, alarm:700}, bus:{warn:600, alarm:250} });
+let backupMin = store.get('backupMin', 0);
+let wakePref = store.get('wake', true);
+let dest = store.get('dest', null);
+let favs = store.get('favs', []);
+
+let tracking = false, watchId = null, tickId = null, wl = null, vibId = null, snoozeId = null, pingId = null;
+let fix = null, history = [], weakAcc = null, warned = false, alarmed = false, backupAt = 0, lastMeta = 0, lastSpeed = null;
+let deferredInstall = null;
+
+/* ---------- audio (silent keep-alive + loud alarm, generated in code) ---------- */
+const SR = 11025;
+function wavUrl(samples){
+  const buf = new ArrayBuffer(44 + samples.length * 2), v = new DataView(buf);
+  const w = (o, s) => { for(let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0,'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); w(8,'WAVE'); w(12,'fmt ');
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,SR,true); v.setUint32(28,SR*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  w(36,'data'); v.setUint32(40, samples.length * 2, true);
+  for(let i = 0; i < samples.length; i++) v.setInt16(44 + i*2, samples[i], true);
+  return URL.createObjectURL(new Blob([buf], {type:'audio/wav'}));
+}
+function makeKeep(){
+  const n = SR * 4, a = new Int16Array(n);
+  for(let i = 0; i < n; i++) a[i] = Math.round(24 * Math.sin(2 * Math.PI * 60 * i / SR)); // ~-65 dBFS, inaudible
+  return wavUrl(a);
+}
+function makeAlarm(){
+  const n = SR * 2, a = new Int16Array(n);
+  const tone = (f, t) => { const x = Math.sin(2*Math.PI*f*t); return 0.55*Math.sign(x) + 0.45*x; };
+  for(let i = 0; i < n; i++){
+    const t = i / SR, c = t % 0.5;
+    let s = 0;
+    if(c < 0.18) s = tone(988, t); else if(c < 0.36) s = tone(1319, t);
+    a[i] = Math.round(s * 30000);
+  }
+  return wavUrl(a);
+}
+const KEEP = makeKeep(), ALARM = makeAlarm();
+const player = new Audio();
+player.loop = true; player.preload = 'auto';
+function playKeep(){ player.src = KEEP; player.volume = 1; player.play().catch(()=>{}); }
+
+/* ---------- helpers ---------- */
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.id); toast.id = setTimeout(() => t.hidden = true, 3500);
+}
+function hav(a, b, c, d){
+  const R = 6371000, r = x => x * Math.PI / 180;
+  const dLat = r(c - a), dLng = r(d - b);
+  const h = Math.sin(dLat/2)**2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+const fmt = d => d >= 1000 ? (d/1000).toFixed(1) + ' km' : Math.round(d) + ' m';
+function titleCase(s){
+  return s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase())
+    .replace(/\bMrt\b/g,'MRT').replace(/\bLrt\b/g,'LRT').replace(/\((.*?)\)/g, m => m.toUpperCase());
+}
+
+/* ---------- notifications / media session / wake lock ---------- */
+async function ensureNotif(){
+  try{ if('Notification' in window && Notification.permission === 'default') await Notification.requestPermission(); }catch(e){}
+}
+async function notify(title, body, urgent){
+  // Separate tags for warning and alarm, so the alarm is a brand-new alert (not a silent update of the warning).
+  const tag = urgent ? 'alight-alarm' : 'alight-warn';
+  try{
+    if(!('Notification' in window) || Notification.permission !== 'granted') return;
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification(title, {
+      body, icon:'icon-192.png', badge:'icon-192.png', tag, renotify:true, silent:false,
+      requireInteraction: !!urgent, timestamp: Date.now(),
+      vibrate: urgent ? [800,200,800,200,800,200,1200] : [300,150,300]
+    });
+  }catch(e){ try{ new Notification(title, {body}); }catch(_){} }
+}
+async function closeNotes(tag){
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    (await reg.getNotifications({tag})).forEach(n => n.close());
+  }catch(e){}
+}
+function setMedia(text){
+  if(!('mediaSession' in navigator)) return;
+  try{
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: text, artist: 'Alight Alert', album: dest ? dest.name : '',
+      artwork: [{src:'icon-512.png', sizes:'512x512', type:'image/png'}]
+    });
+  }catch(e){}
+}
+function setupMediaKeys(){
+  if(!('mediaSession' in navigator)) return;
+  try{
+    navigator.mediaSession.playbackState = 'playing';
+    navigator.mediaSession.setActionHandler('play', () => player.play().catch(()=>{}));
+    navigator.mediaSession.setActionHandler('pause', () => player.play().catch(()=>{}));
+    navigator.mediaSession.setActionHandler('stop', () => stopTrip());
+  }catch(e){}
+}
+async function lockScreen(){
+  try{
+    if('wakeLock' in navigator && !wl){
+      wl = await navigator.wakeLock.request('screen');
+      wl.addEventListener('release', () => { wl = null; });
+    }
+  }catch(e){ wl = null; }
+}
+function unlockScreen(){ try{ if(wl) wl.release(); }catch(e){} wl = null; }
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible' && tracking){
+    if(wakePref || !$('dim').hidden) lockScreen();
+    if(player.paused) player.play().catch(()=>{});
+  }
+});
+
+/* ---------- map ---------- */
+let map, destMarker, userMarker, warnCircle, alarmCircle;
+function initMap(){
+  if(!window.L){ $('map').hidden = true; return; }
+  map = L.map('map').setView([1.3521, 103.8198], 11);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'© OpenStreetMap'}).addTo(map);
+  map.on('click', e => setDest({name:'Pinned location', addr:'Dropped on map', lat:e.latlng.lat, lng:e.latlng.lng}));
+  if(dest) drawDest(true);
+}
+function drawDest(fly){
+  if(!map || !dest) return;
+  const ll = [dest.lat, dest.lng];
+  if(!destMarker){
+    destMarker = L.marker(ll).addTo(map);
+    warnCircle = L.circle(ll, {radius:cfg[mode].warn, color:'#facc15', weight:1, fillOpacity:.05}).addTo(map);
+    alarmCircle = L.circle(ll, {radius:cfg[mode].alarm, color:'#ef4444', weight:1, fillOpacity:.12}).addTo(map);
+  }else{
+    destMarker.setLatLng(ll); warnCircle.setLatLng(ll); alarmCircle.setLatLng(ll);
+  }
+  updateCircles();
+  if(fly) map.setView(ll, 15);
+}
+function updateCircles(){
+  if(warnCircle){ warnCircle.setRadius(cfg[mode].warn); alarmCircle.setRadius(cfg[mode].alarm); }
+}
+
+/* ---------- destination, favourites, search ---------- */
+function setDest(d){
+  dest = d; store.set('dest', d); renderDest(); drawDest(true);
+}
+function renderDest(){
+  $('destBox').innerHTML = dest
+    ? '📍 <b>' + esc(dest.name) + '</b>' + (dest.addr ? '<br><small class="mut">' + esc(dest.addr) + '</small>' : '')
+    : 'No destination selected yet';
+}
+function renderFavs(){
+  const box = $('favs'); box.innerHTML = '';
+  favs.forEach((f, i) => {
+    const b = document.createElement('button'); b.textContent = '⭐ ' + f.name;
+    b.onclick = () => setDest(f);
+    const x = document.createElement('button'); x.textContent = '✕'; x.className = 'ghost';
+    x.setAttribute('aria-label', 'Remove ' + f.name);
+    x.onclick = () => { favs.splice(i, 1); store.set('favs', favs); renderFavs(); };
+    const wrap = document.createElement('span'); wrap.style.display = 'inline-flex'; wrap.style.gap = '2px';
+    wrap.append(b, x); box.append(wrap);
+  });
+}
+$('favBtn').onclick = () => {
+  if(!dest) return toast('Pick a destination first');
+  if(favs.some(f => f.lat === dest.lat && f.lng === dest.lng)) return toast('Already saved');
+  favs.push(dest); store.set('favs', favs); renderFavs(); toast('Saved to favourites');
+};
+
+/* ---- bus stop list: downloaded once on first use, then cached on the phone ---- */
+const BUS_URLS = [
+  'https://raw.githubusercontent.com/cheeaun/busrouter-sg/master/data/v1/stops.min.json',
+  'https://data.busrouter.sg/v1/stops.min.json',
+  'https://data.busrouter.sg/v1/data/stops.min.json',
+  'https://raw.githubusercontent.com/cheeaun/busrouter-sg/master/data/v1/stops.json',
+  'https://raw.githubusercontent.com/cheeaun/busrouter-sg/master/data/2/bus-stops.geojson',
+  'https://gist.github.com/cheeaun/b72847090db8668fc41e/raw/b93e8c7f9e959497a257b8fc56425203c03985d5/bus-stops.geojson'
+];
+let busStops = null, busLoading = null;
+// Accepts several JSON shapes (object keyed by code, array of arrays/objects, GeoJSON) and
+// returns [[code, name, road, lat, lng], ...] limited to Singapore coordinates.
+function parseStops(j){
+  const out = [];
+  const push = (code, name, road, lat, lng) => {
+    lat = +lat; lng = +lng;
+    if(!isFinite(lat) || !isFinite(lng)) return;
+    if(lat > 50){ const t = lat; lat = lng; lng = t; }
+    if(lat < 1 || lat > 1.6 || lng < 103.5 || lng > 104.2) return;
+    out.push([String(code || ''), String(name || ''), String(road || ''), lat, lng]);
+  };
+  const fromArr = (key, a) => {
+    const nums = a.filter(x => typeof x === 'number');
+    const strs = a.filter(x => typeof x === 'string');
+    let code = key;
+    if(!code && strs.length && /^\d{4,5}$/.test(strs[0])) code = strs.shift();
+    push(code, strs[0], strs[1], nums[1], nums[0]);
+  };
+  const fromObj = (e, key) => {
+    if(!e || typeof e !== 'object') return;
+    push(e.code || e.BusStopCode || e.number || e.id || key || '',
+         e.name || e.Description || e.description || '',
+         e.road || e.RoadName || '',
+         e.lat !== undefined ? e.lat : e.Latitude, e.lng !== undefined ? e.lng : (e.lon !== undefined ? e.lon : e.Longitude));
+  };
+  if(Array.isArray(j)){
+    j.forEach(e => Array.isArray(e) ? fromArr('', e) : fromObj(e));
+  }else if(j && Array.isArray(j.features)){
+    j.features.forEach(f => {
+      const p = f.properties || {}, c = (f.geometry && f.geometry.coordinates) || [];
+      push(p.number || p.code || p.BusStopCode || p.id || '', p.name || p.Description || '', p.road || p.RoadName || '', c[1], c[0]);
+    });
+  }else if(j && typeof j === 'object'){
+    Object.keys(j).forEach(k => { const e = j[k]; Array.isArray(e) ? fromArr(k, e) : fromObj(e, k); });
+  }
+  return out;
+}
+function loadBus(){
+  if(busStops) return Promise.resolve(true);
+  if(busLoading) return busLoading;
+  const p = (async () => {
+    const cached = store.get('busStopsV1', null);
+    if(cached && cached.length > 1000){ busStops = cached; return true; }
+    for(const u of BUS_URLS){
+      try{
+        const r = await fetch(u);
+        if(!r.ok) continue;
+        const list = parseStops(await r.json());
+        if(list.length > 1000){ busStops = list; store.set('busStopsV1', list); return true; }
+      }catch(e){}
+    }
+    return false;
+  })();
+  busLoading = p;
+  p.then(() => { busLoading = null; });
+  return p;
+}
+function searchBus(q){
+  const s = q.toLowerCase().trim(), toks = s.split(/\s+/).filter(Boolean), isCode = /^\d{3,5}$/.test(s);
+  const hits = [];
+  for(const b of busStops){
+    const name = b[1].toLowerCase();
+    let score = -1;
+    if(isCode && b[0].startsWith(s)) score = 0;
+    else if(toks.every(t => (name + ' ' + b[2].toLowerCase() + ' ' + b[0]).includes(t))) score = name.startsWith(s) ? 1 : 2;
+    if(score >= 0) hits.push([score, b]);
+  }
+  hits.sort((x, y) => x[0] - y[0] || x[1][1].length - y[1][1].length);
+  return hits.slice(0, 12).map(h => ({
+    name: h[1][1] + (h[1][0] ? ' (' + h[1][0] + ')' : ''),
+    addr: h[1][2],
+    lat: h[1][3], lng: h[1][4]
+  }));
+}
+function showList(list){
+  const box = $('results'); box.innerHTML = '';
+  list.forEach(f => {
+    const b = document.createElement('button');
+    b.innerHTML = esc(f.name) + (f.addr ? '<small>' + esc(f.addr) + '</small>' : '');
+    b.onclick = () => { setDest(f); box.innerHTML = ''; };
+    box.append(b);
+  });
+}
+
+let found = [];
+async function search(){
+  let q = $('q').value.trim();
+  if(!q) return;
+  const box = $('results');
+  if(mode === 'bus'){
+    box.textContent = busStops ? 'Searching…' : 'Loading the bus stop list (first time only)…';
+    if(await loadBus()){
+      const list = searchBus(q);
+      if(list.length) showList(list);
+      else box.textContent = 'No bus stop matched. Try the stop name, road name or 5-digit stop code, or tap the map.';
+      return;
+    }
+    toast('Bus stop list unavailable (offline?). Using general search.');
+    q += ' bus stop';
+  }else if(!/mrt|lrt|station/i.test(q)){
+    q += ' MRT';
+  }
+  box.textContent = 'Searching…';
+  try{
+    const url = 'https://www.onemap.gov.sg/api/common/elastic/search?searchVal=' + encodeURIComponent(q) + '&returnGeom=Y&getAddrDetails=Y&pageNum=1';
+    const r = await fetch(url);
+    const j = await r.json();
+    found = (j.results || []).slice(0, 8).map(x => ({
+      name: titleCase(x.SEARCHVAL || x.ADDRESS || q),
+      addr: x.ADDRESS ? titleCase(x.ADDRESS) : '',
+      lat: parseFloat(x.LATITUDE), lng: parseFloat(x.LONGITUDE)
+    })).filter(x => isFinite(x.lat) && isFinite(x.lng));
+    box.innerHTML = '';
+    if(!found.length){ box.textContent = 'No results. Try another name, or tap the map to drop a pin.'; return; }
+    found.forEach(f => {
+      const b = document.createElement('button');
+      b.innerHTML = esc(f.name) + (f.addr ? '<small>' + esc(f.addr) + '</small>' : '');
+      b.onclick = () => { setDest(f); box.innerHTML = ''; };
+      box.append(b);
+    });
+  }catch(e){
+    box.textContent = 'Search failed (offline or blocked). Tap the map to drop a pin instead.';
+  }
+}
+$('searchBtn').onclick = search;
+$('q').addEventListener('keydown', e => { if(e.key === 'Enter') search(); });
+
+/* ---------- mode and settings UI ---------- */
+function renderMode(){
+  document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
+  $('modeTxt').textContent = mode === 'mrt' ? 'MRT' : 'Bus';
+  $('warn').value = cfg[mode].warn; $('alarm_r').value = cfg[mode].alarm;
+  renderSliders(); updateCircles();
+}
+function renderSliders(){
+  $('warnVal').textContent = fmt(cfg[mode].warn); $('alarmVal').textContent = fmt(cfg[mode].alarm);
+}
+document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => {
+  mode = b.dataset.m; store.set('mode', mode); renderMode();
+  if(mode === 'bus') loadBus();
+});
+$('warn').oninput = () => {
+  cfg[mode].warn = +$('warn').value;
+  if(cfg[mode].alarm > cfg[mode].warn){ cfg[mode].alarm = cfg[mode].warn; $('alarm_r').value = cfg[mode].alarm; }
+  store.set('cfg', cfg); renderSliders(); updateCircles();
+};
+$('alarm_r').oninput = () => {
+  cfg[mode].alarm = +$('alarm_r').value;
+  if(cfg[mode].warn < cfg[mode].alarm){ cfg[mode].warn = cfg[mode].alarm; $('warn').value = cfg[mode].warn; }
+  store.set('cfg', cfg); renderSliders(); updateCircles();
+};
+$('backup').oninput = () => { backupMin = Math.max(0, +$('backup').value || 0); store.set('backup', backupMin); store.set('backupMin', backupMin); };
+$('wake').onchange = () => {
+  wakePref = $('wake').checked; store.set('wake', wakePref);
+  if(tracking){ wakePref ? lockScreen() : unlockScreen(); }
+};
+
+/* ---------- tracking ---------- */
+function onFix(p){
+  const c = p.coords, t = Date.now();
+  lastSpeed = c.speed;
+  if(userMarker){ userMarker.setLatLng([c.latitude, c.longitude]); }
+  else if(map){ userMarker = L.circleMarker([c.latitude, c.longitude], {radius:7, color:'#22d3ee', fillColor:'#22d3ee', fillOpacity:.9}).addTo(map); }
+  if(c.accuracy > 200){ weakAcc = Math.round(c.accuracy); return; }   // too coarse to trust
+  weakAcc = null;
+  const d = hav(c.latitude, c.longitude, dest.lat, dest.lng);
+  fix = {t, acc: Math.round(c.accuracy), d};
+  history.push({t, d});
+  history = history.filter(h => t - h.t <= 120000);
+  evaluate();
+}
+function onErr(e){
+  if(e.code === 1){
+    toast('Location is blocked. Allow location for this site in Chrome settings.');
+    $('state').className = 'state bad'; $('state').textContent = 'Location permission denied';
+  }
+}
+function estSpeed(){
+  const def = DEF_SPEED[mode];
+  if(history.length < 2) return def;
+  const a = history[0], b = history[history.length - 1], dt = (b.t - a.t) / 1000;
+  if(dt < 5) return def;
+  const v = (a.d - b.d) / dt;
+  return v > 2 ? Math.min(v, 35) : def;
+}
+function evaluate(){
+  if(!tracking) return;
+  const now = Date.now(), R = cfg[mode];
+  let d = null, src = 'wait';
+  if(fix){
+    const age = now - fix.t;
+    if(age < 30000){ d = fix.d; src = 'gps'; }
+    else { d = Math.max(0, fix.d - estSpeed() * age / 1000); src = 'est'; }
+  }
+  const st = $('state');
+  $('dist').textContent = d === null ? '—' : (src === 'est' ? '~' : '') + fmt(d);
+  if(src === 'gps'){ st.className = 'state ok'; st.textContent = 'GPS OK · ±' + fix.acc + ' m'; }
+  else if(src === 'est'){ st.className = 'state warn'; st.textContent = 'GPS lost ' + Math.round((now - fix.t)/1000) + 's · estimating (less accurate)'; }
+  else { st.className = 'state warn'; st.textContent = weakAcc ? 'Weak GPS (±' + weakAcc + ' m), waiting…' : 'Waiting for GPS…'; }
+  $('speed').textContent = (lastSpeed != null && isFinite(lastSpeed)) ? Math.round(lastSpeed * 3.6) + ' km/h' : '—';
+
+  if(d !== null){
+    if(!warned && d <= R.warn){
+      warned = true;
+      notify('Getting close', fmt(d) + ' to ' + dest.name + '. Get ready.', false);
+      try{ navigator.vibrate([300,150,300]); }catch(e){}
+    }
+    if(!alarmed && d <= R.alarm){
+      alarmed = true;
+      fireAlarm((src === 'est' ? 'About ' : '') + fmt(d) + ' to ' + dest.name);
+    }
+  }
+  if(backupAt){
+    const left = backupAt - now;
+    $('bleft').textContent = left > 0 ? Math.ceil(left / 60000) + ' min left' : 'done';
+    if(left <= 0 && !alarmed){ alarmed = true; fireAlarm('Your backup timer finished'); }
+  }
+  if(now - lastMeta > 20000){
+    lastMeta = now;
+    setMedia(d === null ? 'Tracking to ' + dest.name : (src === 'est' ? '~' : '') + fmt(d) + ' to ' + dest.name);
+  }
+}
+
+/* ---------- alarm ---------- */
+function fireAlarm(reason){
+  $('alarmText').textContent = reason;
+  $('alarm').hidden = false; $('dim').hidden = true;
+  player.src = ALARM; player.loop = true; player.volume = 1; player.play().catch(()=>{});
+  const buzz = () => { try{ navigator.vibrate([500,200,500,200,500]); }catch(e){} };
+  buzz(); clearInterval(vibId); vibId = setInterval(buzz, 2500);
+  // Page vibration only works while this app is on screen. Re-posting the notification every 5 s makes
+  // Android itself vibrate the phone even when another app is open.
+  const ping = () => notify('GET OFF NOW: ' + (dest ? dest.name : 'test'), reason, true);
+  ping(); clearInterval(pingId); pingId = setInterval(ping, 5000);
+  closeNotes('alight-warn');
+  setMedia('GET OFF NOW');
+}
+function silence(){
+  clearInterval(vibId); vibId = null;
+  clearInterval(pingId); pingId = null;
+  closeNotes('alight-alarm');
+  try{ navigator.vibrate(0); }catch(e){}
+  $('alarm').hidden = true;
+  if(tracking){ playKeep(); } else { player.pause(); }
+}
+$('stopAlarmBtn').onclick = () => { silence(); stopTrip(); };
+$('snoozeBtn').onclick = () => {
+  silence();
+  clearTimeout(snoozeId);
+  snoozeId = setTimeout(() => { alarmed = false; }, 60000);
+};
+
+/* ---------- start / stop ---------- */
+async function startTrip(){
+  if(!dest) return toast('Pick a destination first');
+  if(tracking) return;
+  if(!('geolocation' in navigator)) return toast('This browser has no location support');
+  tracking = true; warned = false; alarmed = false; fix = null; history = []; weakAcc = null; lastMeta = 0;
+  playKeep(); setupMediaKeys(); setMedia('Tracking to ' + dest.name);
+  $('startBtn').hidden = true; $('stopBtn').hidden = false; $('dimBtn').hidden = false;
+  $('state').className = 'state warn'; $('state').textContent = 'Waiting for GPS…'; $('dist').textContent = '—';
+  backupAt = backupMin > 0 ? Date.now() + backupMin * 60000 : 0;
+  $('bleft').textContent = backupMin > 0 ? backupMin + ' min left' : 'off';
+  if(wakePref) lockScreen();
+  watchId = navigator.geolocation.watchPosition(onFix, onErr, {enableHighAccuracy:true, maximumAge:0, timeout:30000});
+  tickId = setInterval(evaluate, 1000);
+  await ensureNotif();
+}
+function stopTrip(){
+  tracking = false;
+  if(watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = null; clearInterval(tickId); tickId = null; clearTimeout(snoozeId);
+  unlockScreen(); silence(); player.pause();
+  try{ if('mediaSession' in navigator){ navigator.mediaSession.playbackState = 'none'; navigator.mediaSession.metadata = null; } }catch(e){}
+  $('startBtn').hidden = false; $('stopBtn').hidden = true; $('dimBtn').hidden = true; $('dim').hidden = true;
+  $('state').className = 'state'; $('state').textContent = 'Not tracking'; $('dist').textContent = '—'; $('bleft').textContent = 'off';
+}
+$('startBtn').onclick = startTrip;
+$('stopBtn').onclick = stopTrip;
+$('dimBtn').onclick = () => { $('dim').hidden = false; lockScreen(); };
+$('dim').onclick = () => { $('dim').hidden = true; };
+$('testBtn').onclick = async () => {
+  await ensureNotif();
+  if(!dest) dest = {name:'Test stop', lat:1.3521, lng:103.8198};
+  fireAlarm('This is a test. Your alarm works.');
+};
+
+$('testLaterBtn').onclick = async () => {
+  await ensureNotif();
+  playKeep(); setupMediaKeys();                      // keeps the page alive while you switch apps
+  toast('Alarm in 10 seconds. Switch to another app now.');
+  setTimeout(() => {
+    if(!dest) dest = {name:'Test stop', lat:1.3521, lng:103.8198};
+    fireAlarm('This is a test. Your alarm works.');
+  }, 10000);
+};
+
+/* ---------- misc ---------- */
+if(navigator.getBattery){
+  navigator.getBattery().then(b => {
+    const u = () => { $('batt').textContent = Math.round(b.level * 100) + '%' + (b.charging ? ' ⚡' : ''); };
+    u(); b.addEventListener('levelchange', u); b.addEventListener('chargingchange', u);
+  }).catch(()=>{});
+}
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; $('installBtn').hidden = false; });
+$('installBtn').onclick = async () => {
+  if(!deferredInstall) return;
+  deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; $('installBtn').hidden = true;
+};
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+
+$('backup').value = backupMin; $('wake').checked = wakePref;
+renderMode(); renderDest(); renderFavs(); initMap();
+if(mode === 'bus') loadBus();
+</script>
+</body>
+</html>
